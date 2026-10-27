@@ -17,6 +17,13 @@ Built with Next.js and Supabase. Hosted on Vercel.
 3. Open **Authentication → Sign In / Providers → Email** and turn **off** "Confirm email", so people can start adding right after creating an account. (Supabase's built-in email sender only allows a few emails per hour.)
 4. Open **Project Settings → API** and copy the **Project URL** and the **anon public** key.
 
+### 1b. Google sign-in (optional)
+
+1. In Google Cloud Console (https://console.cloud.google.com), create a project, then **APIs & Services → OAuth consent screen**: choose **External**, fill in the app name and your email, and publish it.
+2. **APIs & Services → Credentials → Create credentials → OAuth client ID**, type **Web application**. Under **Authorized redirect URIs** add `https://<your-project>.supabase.co/auth/v1/callback`.
+3. Copy the Client ID and Client secret into Supabase **Authentication → Sign In / Providers → Google**, and turn it on.
+4. In Supabase **Authentication → URL Configuration**, set **Site URL** to your Vercel URL and add it under **Redirect URLs**.
+
 ### 2. Vercel (website hosting)
 
 1. Go to https://vercel.com/new and import this GitHub repository.
