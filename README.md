@@ -3,7 +3,8 @@
 A shared board where the team keeps ideas per brand: folders and subfolders, images, GIFs, videos, PDFs, notes and links. The home page is a shuffled canvas of every image and GIF on the board.
 
 - Anyone with the link can browse.
-- Anyone who signs in with an email and password can add, edit, move and delete content.
+- Anyone can add images, notes and links without an account (guest uploads). Guests can edit or delete only what they added.
+- People who sign in with Google or email can edit, move and delete anything and manage brands.
 - Files are stored in Supabase Storage (up to 50 MB per file on the free plan). Longer videos can be added as links.
 
 Built with Next.js and Supabase. Hosted on Vercel.
@@ -13,9 +14,10 @@ Built with Next.js and Supabase. Hosted on Vercel.
 ### 1. Supabase (database, file storage, sign-in)
 
 1. Create a free project at https://supabase.com.
-2. Open **SQL Editor**, paste all of `supabase/schema.sql`, and run it. This creates the tables, the `media` storage bucket, access rules, and the starting brands.
-3. Open **Authentication → Sign In / Providers → Email** and turn **off** "Confirm email", so people can start adding right after creating an account. (Supabase's built-in email sender only allows a few emails per hour.)
-4. Open **Project Settings → API** and copy the **Project URL** and the **anon public** key.
+2. Open **SQL Editor**, paste all of `supabase/schema.sql`, and run it. This creates the tables, the `media` storage bucket, access rules, and the starting brands. Then run `supabase/002_guest_uploads.sql` the same way.
+3. Open **Authentication → Sign In / Providers** and turn on **Allow anonymous sign-ins** so guests can upload.
+4. Open **Authentication → Sign In / Providers → Email** and turn **off** "Confirm email", so people can start adding right after creating an account. (Supabase's built-in email sender only allows a few emails per hour.)
+5. Open **Project Settings → API** and copy the **Project URL** and the **anon public** key.
 
 ### 1b. Google sign-in (optional)
 

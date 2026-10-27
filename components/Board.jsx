@@ -101,10 +101,18 @@ export default function Board() {
 
   if (!supabase) return <div className="notice">Setup needed: add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to the environment (see README).</div>;
 
-  const signedIn = !!session;
+  // members signed in with Google or email; guests get an anonymous session the first time they add something
+  const member = !!session && !session.user.is_anonymous;
+  const ensureSession = async () => {
+    if (session) return session;
+    const { data, error } = await supabase.auth.signInAnonymously();
+    if (error) { toast("Guest uploads aren't switched on yet. Sign in to add."); return null; }
+    setSession(data.session);
+    return data.session;
+  };
   const f = byId.get(cur);
   const itemsById = new Map(items.map(i => [i.id, i]));
-  const ctx = { folders, items, byId, children, path, pathLabel, descendants, countIn, session, toast, load, go, cur, setModal };
+  const ctx = { folders, items, byId, children, path, pathLabel, descendants, countIn, session, member, ensureSession, toast, load, go, cur, setModal };
   const ql = q.trim().toLowerCase();
   const matches = it => !ql || [it.title, it.note, it.url, it.file_name, pathLabel(it.folder)].join(" ").toLowerCase().includes(ql);
 
@@ -146,18 +154,18 @@ export default function Board() {
       {f && <nav className="crumbs" aria-label="Breadcrumb"><button onClick={() => go("")}>Home</button>{path(cur).map(p => <span key={p.id}>/<button onClick={() => go(p.id)}>{cap(p.name)}</button></span>)}</nav>}
       <div className="head">
         <div><h1>{f ? cap(f.name) : "Search"}</h1>{f && <div className="meta">{countIn(f.id)} items</div>}</div>
-        {f && (signedIn ? <div className="toolbar">
+        {f && <div className="toolbar">
           <button className="btn" onClick={() => setModal({ type: "note" })}>+ Note</button>
           <button className="btn" onClick={() => setModal({ type: "link" })}>+ Link</button>
           <button className="btn" onClick={() => setModal({ type: "folder", parent: f.id })}>+ Subfolder</button>
-          <button className="btn ghost" onClick={() => setModal({ type: "folder", parent: f.parent || "", existing: f })}>Edit</button>
-        </div> : <div className="toolbar"><button className="btn pri" onClick={() => setModal({ type: "auth" })}>Sign in to add</button></div>)}
+          {member && <button className="btn ghost" onClick={() => setModal({ type: "folder", parent: f.parent || "", existing: f })}>Edit</button>}
+        </div>}
       </div>
-      {f && signedIn && <DropZone ctx={ctx} />}
+      {f && <DropZone ctx={ctx} />}
       {subs.length > 0 && !ql && <section><p className="label" style={{ marginBottom: 8 }}>Subfolders</p><div className="folders">{subs.map(s => <FolderCard key={s.id} f={s} ctx={ctx} />)}</div></section>}
       {list.length ? <section><p className="label" style={{ marginBottom: 8 }}>{(ql ? `Results for “${q.trim()}”` : "Content") + " · " + list.length}</p><div className="board">{list.map(it => <ItemCard key={it.id} it={it} ctx={ctx} />)}</div></section>
         : ql ? <div className="empty"><h3>No Matches</h3>Try another keyword.</div>
-        : <div className="empty"><h3>This Folder Is Empty</h3>{signedIn ? "Drop files above, or add the first note or link." : "Sign in to add the first image, note or link."}</div>}
+        : <div className="empty"><h3>This Folder Is Empty</h3>Drop files above, or add the first note or link.</div>}
     </>;
   }
 
@@ -168,13 +176,13 @@ export default function Board() {
         <input className="search" type="search" placeholder="Search names, notes…" aria-label="Search" value={q} onChange={e => setQ(e.target.value)} />
         <p className="label">Brands</p>
         <ul className="tree"><Tree pid="" depth={0} /></ul>
-        {signedIn && <button className="btn wide" onClick={() => setModal({ type: "folder", parent: "" })}>+ New brand</button>}
+        {member && <button className="btn wide" onClick={() => setModal({ type: "folder", parent: "" })}>+ New brand</button>}
         <div className="account">
-          {signedIn ? <>
+          {member ? <>
             <span>Signed in as</span><span className="mono">{session.user.email}</span>
             <button className="btn sm ghost" style={{ alignSelf: "flex-start", paddingLeft: 0 }} onClick={() => supabase.auth.signOut()}>Sign out</button>
           </> : <>
-            <span>Anyone can browse. Sign in with your email to add and edit.</span>
+            <span>Anyone can add images, notes and links. Sign in to edit or delete other people's posts.</span>
             <button className="btn sm" style={{ alignSelf: "flex-start" }} onClick={() => setModal({ type: "auth" })}>Sign in</button>
           </>}
         </div>
@@ -241,6 +249,8 @@ function DropZone({ ctx }) {
   const [prog, setProg] = useState("");
   const input = useRef();
   const upload = async files => {
+    const s = await ctx.ensureSession(); if (!s) return;
+    const email = s.user.is_anonymous ? null : s.user.email;
     const list = [...files]; const failed = []; let done = 0;
     setProg(`Uploading 0/${list.length}…`);
     for (const file of list) {
@@ -253,7 +263,7 @@ function DropZone({ ctx }) {
         else {
           const { error } = await supabase.from("items").insert({
             folder: ctx.cur, kind: "file", storage_path: p, content_type: file.type || "application/octet-stream", size_bytes: file.size,
-            file_name: file.name.slice(0, 200), title: file.name.replace(/\.[^.]+$/, "").slice(0, 120), author_email: ctx.session.user.email,
+            file_name: file.name.slice(0, 200), title: file.name.replace(/\.[^.]+$/, "").slice(0, 120), author_email: email,
           });
           if (error) { failed.push(`${file.name} (couldn't save)`); supabase.storage.from(BUCKET).remove([p]); }
         }
@@ -312,6 +322,7 @@ function FolderModal({ parent, existing, ctx, close }) {
   const save = async () => {
     const n = cap(name.trim()).slice(0, 80); if (!n) return;
     if (existing) { if (await run(ctx, () => supabase.from("folders").update({ name: n }).eq("id", existing.id), "Saved")) close(); return; }
+    if (!(await ctx.ensureSession())) return;
     const base = (parent ? parent + "-" : "") + slug(n);
     const id = ctx.byId.has(base) ? base + "-" + Math.random().toString(36).slice(2, 6) : base;
     if (await run(ctx, () => supabase.from("folders").insert({ id, name: n, parent: parent || null, sort: ctx.children(parent).length + 1 }), "Created " + n)) { close(); ctx.go(id); }
@@ -340,7 +351,8 @@ function NoteModal({ ctx, close }) {
   const [title, setTitle] = useState(""); const [note, setNote] = useState("");
   const save = async () => {
     if (!note.trim()) return;
-    if (await run(ctx, () => supabase.from("items").insert({ folder: ctx.cur, kind: "note", title: title.trim().slice(0, 120), note: note.slice(0, 20000), author_email: ctx.session.user.email }), "Note added")) close();
+    const s = await ctx.ensureSession(); if (!s) return;
+    if (await run(ctx, () => supabase.from("items").insert({ folder: ctx.cur, kind: "note", title: title.trim().slice(0, 120), note: note.slice(0, 20000), author_email: s.user.is_anonymous ? null : s.user.email }), "Note added")) close();
   };
   return (
     <Modal close={close}>
@@ -357,7 +369,8 @@ function LinkModal({ ctx, close }) {
   const save = async () => {
     let u = url.trim(); if (u && !/^https?:\/\//i.test(u)) u = "https://" + u;
     try { new URL(u); } catch { setErr("That URL doesn't look right."); return; }
-    if (await run(ctx, () => supabase.from("items").insert({ folder: ctx.cur, kind: "link", url: u.slice(0, 2000), title: title.trim().slice(0, 120), note: note.slice(0, 5000), author_email: ctx.session.user.email }), "Link added")) close();
+    const s = await ctx.ensureSession(); if (!s) return;
+    if (await run(ctx, () => supabase.from("items").insert({ folder: ctx.cur, kind: "link", url: u.slice(0, 2000), title: title.trim().slice(0, 120), note: note.slice(0, 5000), author_email: s.user.is_anonymous ? null : s.user.email }), "Link added")) close();
   };
   return (
     <Modal close={close}>
@@ -374,7 +387,8 @@ function LinkModal({ ctx, close }) {
 
 function ItemModal({ it, ctx, close }) {
   const k = kindOf(it);
-  const can = !!ctx.session;
+  // members edit anything; guests only what they added in this browser
+  const can = ctx.member || (!!ctx.session && it.created_by === ctx.session.user.id);
   const [title, setTitle] = useState(it.title || ""); const [note, setNote] = useState(it.note || ""); const [folder, setFolder] = useState(it.folder);
   const [confirm, setConfirm] = useState(false);
   const src = it.storage_path ? mediaUrl(it.storage_path) : "";
@@ -401,7 +415,7 @@ function ItemModal({ it, ctx, close }) {
         <label>Title<input value={title} disabled={!can} onChange={e => setTitle(e.target.value)} /></label>
         <label>{k === "note" ? "Note" : "Notes"}<textarea value={note} disabled={!can} placeholder="Notes and ideas…" onChange={e => setNote(e.target.value)} /></label>
         <label>Folder<select value={folder} disabled={!can} onChange={e => setFolder(e.target.value)}>{opts}</select></label>
-        <div className="who">{["Added " + fmtDate(it.created_at), it.author_email ? "by " + it.author_email.split("@")[0] : "", it.file_name, it.size_bytes ? fmtSize(it.size_bytes) : ""].filter(Boolean).join(" · ")}</div>
+        <div className="who">{["Added " + fmtDate(it.created_at), "by " + (it.author_email ? it.author_email.split("@")[0] : "Guest"), it.file_name, it.size_bytes ? fmtSize(it.size_bytes) : ""].filter(Boolean).join(" · ")}</div>
         {src && <a className="btn sm" style={{ alignSelf: "flex-start" }} href={src} target="_blank" rel="noopener">Open Original ↗</a>}
         {confirm && <div className="confirm"><span>Delete this item? This can't be undone.</span>
           <div className="row"><button className="btn ghost sm" onClick={() => setConfirm(false)}>Keep</button><button className="btn dng sm" onClick={del}>Delete</button></div></div>}
@@ -436,7 +450,7 @@ function AuthModal({ ctx, close }) {
   return (
     <Modal close={close}>
       <h2>{mode === "in" ? "Sign In" : "Create Account"}</h2>
-      <p>Anyone with an email can add images, notes and links to the board.</p>
+      <p>Signing in lets you edit and delete any post and manage brands.</p>
       <button type="button" className="btn pri wide" disabled={busy} onClick={google} style={{ padding: "10px 14px" }}>
         <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
         Continue with Google

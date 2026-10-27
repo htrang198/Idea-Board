@@ -1,5 +1,6 @@
 -- Brand Idea Board: run once in Supabase > SQL Editor.
--- Everyone can view. Anyone signed in (email + password) can add, edit and delete.
+-- Everyone can view. Anyone signed in can add, edit and delete.
+-- Then run 002_guest_uploads.sql to let guests add without an account.
 
 create table if not exists public.folders (
   id text primary key,
